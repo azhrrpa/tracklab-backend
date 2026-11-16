@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using TrackLab.Api.Configuration;
 
@@ -14,7 +15,14 @@ public sealed class UpstreamApiClient(HttpClient http, IOptions<UpstreamApiOptio
 {
     private static readonly string[] ForwardedHeaderPrefixes = ["X-Paging", "X-Total", "X-Pagination"];
 
-    public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    /// <summary>
+    /// Empty optional fields are left out instead of sent as null: the assessment API rejects null for
+    /// some of them (e.g. "mandays" on trackers, found against the real API) but accepts a missing field.
+    /// </summary>
+    public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
 
     private readonly UpstreamApiOptions _options = options.Value;
 

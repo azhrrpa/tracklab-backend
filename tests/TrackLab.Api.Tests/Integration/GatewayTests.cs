@@ -100,6 +100,20 @@ public class GatewayTests : IDisposable
     }
 
     [Fact]
+    public async Task Empty_optional_fields_are_left_out_because_the_api_rejects_null()
+    {
+        _factory.Upstream.On(HttpMethod.Post, $"{FeaturePath}/trackers", HttpStatusCode.OK, """{"success":true}""");
+        var client = await _factory.CreateLoggedInClientAsync();
+
+        await client.PostAsJsonAsync("/api/trackers", new { code = "NO-MANDAYS", description = "x", actionType = "none", moduleFlow = "CA", order = 1, mandays = (int?)null, parentCode = "" });
+
+        var sent = JsonDocument.Parse(_factory.Upstream.Requests.Last().Body).RootElement;
+        Assert.False(sent.TryGetProperty("mandays", out _));
+        Assert.False(sent.TryGetProperty("parentCode", out _));
+        Assert.Equal(1, sent.GetProperty("order").GetInt32());
+    }
+
+    [Fact]
     public async Task Update_records_what_changed()
     {
         _factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", HttpStatusCode.OK,

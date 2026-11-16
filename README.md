@@ -230,6 +230,7 @@ The Postman collection has no example responses, so the API's behaviour was chec
 | **A new token gets `401` on every feature endpoint until `GET /auth/authorization` has been called with it** | Called automatically right after login and after each refresh. On a `401`, the gateway re-activates the token before trying a refresh. |
 | `X-Paging-SortBy` becomes a SQL `ORDER BY` column: a missing value or an unknown column returns HTTP 500. The columns don't fully match the diagram (requests have no `created_on`; the date column is `request_date`) | The backend always sends a sort column (default `id`) and only accepts plain property names. If the API rejects a column (Postgres error 42703), the backend fetches the page again sorted by `id` and sets `X-Sort-Fallback`, so the user still gets data. |
 | Paging responses are `{ data: { items, totalItems, totalPages, pageCurrent, ... } }` | Passed through; the frontend reads `items` and `totalItems`. |
+| Sending `null` for some optional fields fails (e.g. `"mandays": null` on a tracker gives *"could not be converted to System.Int32"*), while leaving the field out works | Empty optional fields are omitted from the JSON sent to the API. |
 | Error responses include stack traces and SQL details | Upstream 5xx bodies are logged and replaced with a generic `502`. |
 | The test account and its data are shared by all candidates (records such as `dika` or `LIVE-TEST-2007`) | Validation accepts the existing data (lowercase codes, empty parent codes), and the UI copes with mixed icon names. |
 
