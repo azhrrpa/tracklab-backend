@@ -31,8 +31,9 @@ public sealed class UpstreamApiOptions
     [Required]
     public string ModuleCode { get; set; } = "ALL";
 
+    /// <summary>Kept below the Next.js proxy timeout (30 s) so users get this API's error message, not the proxy's.</summary>
     [Range(1, 300)]
-    public int TimeoutSeconds { get; set; } = 30;
+    public int TimeoutSeconds { get; set; } = 25;
 
     /// <summary>Name of the cookie the refresh endpoint reads the refresh token from.</summary>
     [Required]

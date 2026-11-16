@@ -197,17 +197,25 @@ public abstract class ResourceControllerBase(UpstreamGateway gateway, AuditTrail
         JsonElement? before = null;
         if (action != AuditAction.Create)
         {
-            var current = await Gateway.SendAsUserAsync(
-                HttpContext,
-                new UpstreamRequest(HttpMethod.Get, UpstreamArea.Feature, $"{ResourcePath}/{id}"),
-                cancellationToken);
-
-            if (current.StatusCode == StatusCodes.Status404NotFound)
+            try
             {
-                return Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found", detail: $"The {EntityName} no longer exists.");
-            }
+                var current = await Gateway.SendAsUserAsync(
+                    HttpContext,
+                    new UpstreamRequest(HttpMethod.Get, UpstreamArea.Feature, $"{ResourcePath}/{id}"),
+                    cancellationToken);
 
-            before = current.IsSuccess ? TryParseJson(current.Body) : null;
+                if (current.StatusCode == StatusCodes.Status404NotFound)
+                {
+                    return Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found", detail: $"The {EntityName} no longer exists.");
+                }
+
+                before = current.IsSuccess ? TryParseJson(current.Body) : null;
+            }
+            catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
+            {
+                // The snapshot only enriches the audit trail; the user's change must still go through.
+                Logger.LogWarning(ex, "Could not read {Entity} {Id} before {AuditAction}; auditing without a snapshot", EntityName, id, action);
+            }
         }
 
         var response = await Gateway.SendAsUserAsync(HttpContext, request, cancellationToken);

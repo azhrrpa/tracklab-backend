@@ -84,8 +84,8 @@ var app = builder.Build();
 app.UseForwardedHeaders();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
+app.UseMiddleware<RequestLoggingMiddleware>(); // outside the exception handler, so it logs the final status
 app.UseExceptionHandler();
-app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseCors("frontend");
 app.UseRateLimiter();
 app.UseAuthentication();

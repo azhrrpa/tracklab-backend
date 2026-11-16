@@ -195,7 +195,7 @@ The "before" snapshot is read from the assessment API just before the change, so
 | `UpstreamApi:AppId` / `AppKey` | *(required, via `.env`)* | App credentials |
 | `UpstreamApi:AppCode` / `ModuleCode` | `ASSESSMENT` / `ALL` | Sent at login and logout |
 | `UpstreamApi:RefreshCookieName` | `RefreshToken` | Cookie the refresh endpoint reads |
-| `UpstreamApi:TimeoutSeconds` | `30` | Upstream timeout |
+| `UpstreamApi:TimeoutSeconds` | `25` | Upstream timeout (kept below the Next.js proxy's 30 s) |
 | `SessionCookies:Secure` | `true` (`false` in Development) | Send cookies over HTTPS only |
 | `Cors:AllowedOrigins` | `["http://localhost:3000"]` | Only needed if the frontend calls the API directly |
 | `FileLogging:Directory` / `MinimumLevel` / `RetainedDays` | `logs` / `Information` / `14` | File logs |
@@ -231,6 +231,7 @@ The Postman collection has no example responses, so the API's behaviour was chec
 | `X-Paging-SortBy` becomes a SQL `ORDER BY` column: a missing value or an unknown column returns HTTP 500. The columns don't fully match the diagram (requests have no `created_on`; the date column is `request_date`) | The backend always sends a sort column (default `id`) and only accepts plain property names. If the API rejects a column (Postgres error 42703), the backend fetches the page again sorted by `id` and sets `X-Sort-Fallback`, so the user still gets data. |
 | Paging responses are `{ data: { items, totalItems, totalPages, pageCurrent, ... } }` | Passed through; the frontend reads `items` and `totalItems`. |
 | Sending `null` for some optional fields fails (e.g. `"mandays": null` on a tracker gives *"could not be converted to System.Int32"*), while leaving the field out works | Empty optional fields are omitted from the JSON sent to the API. |
+| A `DELETE` whose JSON body is streamed (chunked, no `Content-Length`) hangs until the timeout | Bodies are serialised up front, so every request carries a `Content-Length`. |
 | Error responses include stack traces and SQL details | Upstream 5xx bodies are logged and replaced with a generic `502`. |
 | The test account and its data are shared by all candidates (records such as `dika` or `LIVE-TEST-2007`) | Validation accepts the existing data (lowercase codes, empty parent codes), and the UI copes with mixed icon names. |
 

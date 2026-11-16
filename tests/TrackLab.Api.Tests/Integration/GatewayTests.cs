@@ -147,9 +147,23 @@ public class GatewayTests : IDisposable
         await client.DeleteAsync($"/api/trackers/{TrackerId}?hard=true");
         var hard = JsonDocument.Parse(_factory.Upstream.Requests.Last().Body).RootElement;
 
+        var deleteCall = _factory.Upstream.Requests.Last(r => r.Method == HttpMethod.Delete);
+        Assert.Equal(System.Text.Encoding.UTF8.GetByteCount(deleteCall.Body), deleteCall.ContentLength);
         Assert.False(soft.GetProperty("doHardDelete").GetBoolean());
         Assert.Equal("assessment.it", soft.GetProperty("deletedBy").GetString());
         Assert.True(hard.GetProperty("doHardDelete").GetBoolean());
+    }
+
+    [Fact]
+    public async Task A_failing_snapshot_does_not_block_the_delete()
+    {
+        _factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", _ => throw new HttpRequestException("connection reset"));
+        _factory.Upstream.On(HttpMethod.Delete, $"{FeaturePath}/trackers", HttpStatusCode.OK, """{"success":true}""");
+        var client = await _factory.CreateLoggedInClientAsync();
+
+        var response = await client.DeleteAsync($"/api/trackers/{TrackerId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]

@@ -4,7 +4,7 @@ using System.Text;
 namespace TrackLab.Api.Tests.Support;
 
 /// <summary>A request the backend sent to the (fake) assessment API.</summary>
-public sealed record RecordedRequest(HttpMethod Method, string PathAndQuery, Dictionary<string, string> Headers, string Body)
+public sealed record RecordedRequest(HttpMethod Method, string PathAndQuery, Dictionary<string, string> Headers, string Body, long? ContentLength = null)
 {
     public string? Header(string name) => Headers.TryGetValue(name, out var value) ? value : null;
 }
@@ -43,7 +43,7 @@ public sealed class FakeUpstream : HttpMessageHandler
     {
         var headers = request.Headers.ToDictionary(h => h.Key, h => string.Join(",", h.Value), StringComparer.OrdinalIgnoreCase);
         var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
-        var recorded = new RecordedRequest(request.Method, request.RequestUri!.PathAndQuery, headers, body);
+        var recorded = new RecordedRequest(request.Method, request.RequestUri!.PathAndQuery, headers, body, request.Content?.Headers.ContentLength);
         Requests.Add(recorded);
 
         var route = _routes.FirstOrDefault(r => r.Method == request.Method && recorded.PathAndQuery.StartsWith(r.PathPrefix, StringComparison.Ordinal));

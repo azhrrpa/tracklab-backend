@@ -1,5 +1,5 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
@@ -32,7 +32,10 @@ public sealed class UpstreamApiClient(HttpClient http, IOptions<UpstreamApiOptio
 
         if (request.Body is not null)
         {
-            message.Content = JsonContent.Create(request.Body, request.Body.GetType(), options: JsonOptions);
+            // Serialised up front so the request has a Content-Length. A streamed (chunked) body made
+            // the assessment API hang on DELETE until the timeout, found while testing against it.
+            var json = JsonSerializer.Serialize(request.Body, request.Body.GetType(), JsonOptions);
+            message.Content = new StringContent(json, Encoding.UTF8, "application/json");
         }
 
         if (!string.IsNullOrEmpty(request.AccessToken))
