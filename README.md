@@ -40,14 +40,15 @@ Browser ──► Next.js (localhost:3000) ──/api/*──► TrackLab.Api (l
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (`dotnet --version` should print 8.x)
 
+Run every command below from the repository root.
+
 ### 1. Configure secrets
 
-The app credentials from the assessment brief go in a git-ignored `.env` file:
+The app credentials from the assessment brief go in a git-ignored `.env` file next to the project:
 
 ```bash
-cd src/TrackLab.Api
-cp .env.example .env
-# then edit .env:
+cp src/TrackLab.Api/.env.example src/TrackLab.Api/.env
+# then edit src/TrackLab.Api/.env:
 #   UpstreamApi__AppId=<app_id from the brief>
 #   UpstreamApi__AppKey=<app_key from the brief>
 ```
