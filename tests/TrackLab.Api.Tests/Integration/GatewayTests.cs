@@ -136,31 +136,10 @@ public class GatewayTests : IDisposable
     }
 
     [Fact]
-    public async Task Delete_is_soft_by_default_and_hard_on_request()
-    {
-        _factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", HttpStatusCode.OK, """{"data":{"code":"QA"}}""");
-        _factory.Upstream.On(HttpMethod.Delete, $"{FeaturePath}/trackers", HttpStatusCode.OK, """{"success":true}""");
-        var client = await _factory.CreateLoggedInClientAsync();
-
-        await client.DeleteAsync($"/api/trackers/{TrackerId}");
-        var soft = JsonDocument.Parse(_factory.Upstream.Requests.Last().Body).RootElement;
-        await client.DeleteAsync($"/api/trackers/{TrackerId}?hard=true");
-        var hard = JsonDocument.Parse(_factory.Upstream.Requests.Last().Body).RootElement;
-
-        var deleteCall = _factory.Upstream.Requests.Last(r => r.Method == HttpMethod.Delete);
-        Assert.Equal(System.Text.Encoding.UTF8.GetByteCount(deleteCall.Body), deleteCall.ContentLength);
-        Assert.False(soft.GetProperty("doHardDelete").GetBoolean());
-        Assert.Equal("assessment.it", soft.GetProperty("deletedBy").GetString());
-        Assert.True(hard.GetProperty("doHardDelete").GetBoolean());
-    }
-
-    [Fact]
-    public async Task When_the_api_drops_the_delete_body_the_record_is_deactivated_through_put()
+    public async Task Delete_deactivates_the_record_through_put_by_default()
     {
         _factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", HttpStatusCode.OK,
             """{"data":{"id":"3080440e-245a-1726-adc2-6638349222d3","code":"ZAHRA-TEST","description":"tes","actionType":"none","moduleFlow":"CA","order":0,"mandays":0},"success":true}""");
-        _factory.Upstream.On(HttpMethod.Delete, $"{FeaturePath}/trackers", HttpStatusCode.BadRequest,
-            """{"title":"One or more validation errors occurred.","status":400,"errors":{"":["A non-empty request body is required."]}}""");
         _factory.Upstream.On(HttpMethod.Put, $"{FeaturePath}/trackers", HttpStatusCode.OK, """{"success":true}""");
         var client = await _factory.CreateLoggedInClientAsync();
 
@@ -168,7 +147,8 @@ public class GatewayTests : IDisposable
         var hard = await client.DeleteAsync($"/api/trackers/{TrackerId}?hard=true");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("deactivated", response.Headers.GetValues("X-Delete-Fallback").Single());
+        Assert.Equal("deactivated", response.Headers.GetValues("X-Delete-Mode").Single());
+        Assert.DoesNotContain(_factory.Upstream.Requests, r => r.Method == HttpMethod.Delete);
         var put = JsonDocument.Parse(_factory.Upstream.Requests.Single(r => r.Method == HttpMethod.Put).Body).RootElement;
         Assert.False(put.GetProperty("isActive").GetBoolean());
         Assert.Equal("ZAHRA-TEST", put.GetProperty("code").GetString());
@@ -180,15 +160,49 @@ public class GatewayTests : IDisposable
     }
 
     [Fact]
-    public async Task A_failing_snapshot_does_not_block_the_delete()
+    public async Task With_the_delete_endpoint_enabled_the_body_carries_a_length_and_the_connection_closes()
     {
-        _factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", _ => throw new HttpRequestException("connection reset"));
-        _factory.Upstream.On(HttpMethod.Delete, $"{FeaturePath}/trackers", HttpStatusCode.OK, """{"success":true}""");
-        var client = await _factory.CreateLoggedInClientAsync();
+        using var factory = new TrackLabFactory { UseDeleteEndpoint = true };
+        factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", HttpStatusCode.OK, """{"data":{"code":"QA"}}""");
+        factory.Upstream.On(HttpMethod.Delete, $"{FeaturePath}/trackers", HttpStatusCode.OK, """{"success":true}""");
+        var client = await factory.CreateLoggedInClientAsync();
+
+        await client.DeleteAsync($"/api/trackers/{TrackerId}?hard=true");
+
+        var delete = factory.Upstream.Requests.Single(r => r.Method == HttpMethod.Delete);
+        var body = JsonDocument.Parse(delete.Body).RootElement;
+        Assert.True(body.GetProperty("doHardDelete").GetBoolean());
+        Assert.Equal("assessment.it", body.GetProperty("deletedBy").GetString());
+        Assert.Equal(System.Text.Encoding.UTF8.GetByteCount(delete.Body), delete.ContentLength);
+        Assert.Equal("close", delete.Header("Connection"));
+    }
+
+    [Fact]
+    public async Task When_the_api_drops_the_delete_body_the_record_is_deactivated_instead()
+    {
+        using var factory = new TrackLabFactory { UseDeleteEndpoint = true };
+        factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", HttpStatusCode.OK, """{"data":{"code":"ZAHRA-TEST"},"success":true}""");
+        factory.Upstream.On(HttpMethod.Delete, $"{FeaturePath}/trackers", HttpStatusCode.BadRequest,
+            """{"title":"One or more validation errors occurred.","status":400,"errors":{"":["A non-empty request body is required."]}}""");
+        factory.Upstream.On(HttpMethod.Put, $"{FeaturePath}/trackers", HttpStatusCode.OK, """{"success":true}""");
+        var client = await factory.CreateLoggedInClientAsync();
 
         var response = await client.DeleteAsync($"/api/trackers/{TrackerId}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(factory.Upstream.Requests, r => r.Method == HttpMethod.Put && r.Body.Contains("\"isActive\":false"));
+    }
+
+    [Fact]
+    public async Task A_delete_without_a_readable_record_is_refused_with_a_clear_message()
+    {
+        _factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", _ => throw new HttpRequestException("connection reset"));
+        var client = await _factory.CreateLoggedInClientAsync();
+
+        var response = await client.DeleteAsync($"/api/trackers/{TrackerId}");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.DoesNotContain(_factory.Upstream.Requests, r => r.Method == HttpMethod.Put);
     }
 
     [Fact]

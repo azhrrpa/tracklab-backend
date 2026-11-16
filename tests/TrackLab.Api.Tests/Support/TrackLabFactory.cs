@@ -26,6 +26,9 @@ public sealed class TrackLabFactory : WebApplicationFactory<Program>
 
     public string RefreshToken { get; } = Jwt.Create(DateTimeOffset.UtcNow.AddHours(12));
 
+    /// <summary>Use the API's DELETE endpoints instead of deactivating through PUT.</summary>
+    public bool UseDeleteEndpoint { get; init; }
+
     public TrackLabFactory()
     {
         Upstream.On(HttpMethod.Post, $"{AuthPath}/auth/login", request =>
@@ -49,6 +52,7 @@ public sealed class TrackLabFactory : WebApplicationFactory<Program>
         builder.UseSetting("UpstreamApi:AppId", "test-app-id");
         builder.UseSetting("UpstreamApi:AppKey", "test-app-key");
         builder.UseSetting("SessionCookies:Secure", "false");
+        builder.UseSetting("UpstreamApi:UseDeleteEndpoint", UseDeleteEndpoint ? "true" : "false");
         builder.UseSetting("FileLogging:Directory", Path.Combine(_tempDirectory, "logs"));
         builder.UseSetting("AuditTrail:FilePath", Path.Combine(_tempDirectory, "audit-trail.jsonl"));
 

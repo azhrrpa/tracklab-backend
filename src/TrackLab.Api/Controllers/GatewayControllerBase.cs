@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
+using TrackLab.Api.Configuration;
 using TrackLab.Api.Audit;
 using TrackLab.Api.Contracts;
 using TrackLab.Api.Upstream;
@@ -157,18 +159,37 @@ public abstract class ResourceControllerBase(UpstreamGateway gateway, AuditTrail
     public Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken) =>
         ForwardAsync(new UpstreamRequest(HttpMethod.Get, UpstreamArea.Feature, $"{ResourcePath}/{id}"), cancellationToken);
 
-    /// <summary>Soft delete by default (is_active = false); pass hard=true to remove the row permanently.</summary>
+    /// <summary>
+    /// Deletes (deactivates) a record. By default this is a PUT with isActive=false, because the API drops
+    /// DELETE bodies; with UpstreamApi:UseDeleteEndpoint the DELETE endpoint is tried first.
+    /// hard=true needs the DELETE endpoint.
+    /// </summary>
     [HttpDelete("{id:guid}")]
-    public Task<IActionResult> Delete(Guid id, [FromQuery] bool hard, CancellationToken cancellationToken) =>
-        WriteWithAuditAsync(
-            id,
-            hard ? AuditAction.HardDelete : AuditAction.Delete,
-            new UpstreamRequest(HttpMethod.Delete, UpstreamArea.Feature, ResourcePath)
+    public Task<IActionResult> Delete(Guid id, [FromQuery] bool hard, CancellationToken cancellationToken)
+    {
+        var useDeleteEndpoint = HttpContext.RequestServices
+            .GetRequiredService<IOptions<UpstreamApiOptions>>().Value.UseDeleteEndpoint;
+
+        if (!useDeleteEndpoint && hard)
+        {
+            return Task.FromResult<IActionResult>(Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Delete not available",
+                detail: "Permanent delete isn't available: the assessment API drops the body of DELETE requests."));
+        }
+
+        var request = useDeleteEndpoint
+            ? new UpstreamRequest(HttpMethod.Delete, UpstreamArea.Feature, ResourcePath)
             {
                 Body = new { id, deletedBy = CurrentUser, doHardDelete = hard },
-            },
-            payload: null,
-            cancellationToken);
+                // Don't reuse the connection afterwards: when the body is dropped, the next request on
+                // the same connection can hang.
+                Headers = new Dictionary<string, string> { ["Connection"] = "close" },
+            }
+            : null;
+
+        return WriteWithAuditAsync(id, hard ? AuditAction.HardDelete : AuditAction.Delete, request, payload: null, cancellationToken);
+    }
 
     protected Task<IActionResult> CreateAsync(object payload, Guid id, CancellationToken cancellationToken) =>
         WriteWithAuditAsync(
@@ -186,10 +207,11 @@ public abstract class ResourceControllerBase(UpstreamGateway gateway, AuditTrail
             payload,
             cancellationToken);
 
+    /// <param name="request">The write to send; null for a delete done as a deactivation (PUT isActive=false).</param>
     private async Task<IActionResult> WriteWithAuditAsync(
         Guid id,
         AuditAction action,
-        UpstreamRequest request,
+        UpstreamRequest? request,
         object? payload,
         CancellationToken cancellationToken)
     {
@@ -218,9 +240,9 @@ public abstract class ResourceControllerBase(UpstreamGateway gateway, AuditTrail
             }
         }
 
-        var response = await Gateway.SendAsUserAsync(HttpContext, request, cancellationToken);
+        var response = request is null ? null : await Gateway.SendAsUserAsync(HttpContext, request, cancellationToken);
 
-        if (IsDeleteBodyDropped(action, response))
+        if (response is null || IsDeleteBodyDropped(action, response))
         {
             if (action == AuditAction.HardDelete || TryParseObject(AuditDiff.Unwrap(before)) is not { } snapshot)
             {
@@ -232,10 +254,7 @@ public abstract class ResourceControllerBase(UpstreamGateway gateway, AuditTrail
                         : $"The {EntityName} could not be loaded, so it can't be deactivated. Please try again.");
             }
 
-            // Soft delete through the update endpoint, which works.
-            Logger.LogWarning(
-                "DELETE body was dropped upstream for {Entity} {Id}; soft-deleting through PUT with isActive=false",
-                EntityName, id);
+            // Deactivate through the update endpoint: the record as it is now, with isActive=false.
             snapshot["id"] = JsonSerializer.SerializeToElement(id);
             snapshot["updatedBy"] = JsonSerializer.SerializeToElement(CurrentUser);
             snapshot["isActive"] = JsonSerializer.SerializeToElement(false);
@@ -243,7 +262,7 @@ public abstract class ResourceControllerBase(UpstreamGateway gateway, AuditTrail
                 HttpContext,
                 new UpstreamRequest(HttpMethod.Put, UpstreamArea.Feature, ResourcePath) { Body = snapshot },
                 cancellationToken);
-            Response.Headers["X-Delete-Fallback"] = "deactivated";
+            Response.Headers["X-Delete-Mode"] = "deactivated";
         }
 
         if (response.IsSuccess)

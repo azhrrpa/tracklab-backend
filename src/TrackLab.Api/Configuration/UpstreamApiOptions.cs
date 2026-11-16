@@ -35,6 +35,13 @@ public sealed class UpstreamApiOptions
     [Range(1, 300)]
     public int TimeoutSeconds { get; set; } = 25;
 
+    /// <summary>
+    /// Whether deletes go to the API's DELETE endpoints. Off by default: the API's infrastructure drops
+    /// DELETE request bodies (every call fails, and the connection can hang afterwards), so records are
+    /// deactivated through PUT with isActive=false instead. Turn on if the API gets fixed.
+    /// </summary>
+    public bool UseDeleteEndpoint { get; set; }
+
     /// <summary>Name of the cookie the refresh endpoint reads the refresh token from.</summary>
     [Required]
     public string RefreshCookieName { get; set; } = "RefreshToken";

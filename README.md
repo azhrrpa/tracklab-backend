@@ -115,7 +115,7 @@ All endpoints except login, logout, the client log and health require a session.
 | GET | `/api/{resource}/{id}` | `GET /{resource}/{id}` | |
 | POST | `/api/{resource}` | `POST /{resource}` | `id` and `createdBy` are set by the server |
 | PUT | `/api/{resource}/{id}` | `PUT /{resource}` | `updatedBy` is set by the server |
-| DELETE | `/api/{resource}/{id}?hard=false` | `DELETE /{resource}`, falling back to `PUT /{resource}` with `isActive: false` | Soft delete. The assessment API drops DELETE bodies (see Findings), so the backend deactivates the record through the update endpoint. `hard=true` is passed on but currently can't succeed. |
+| DELETE | `/api/{resource}/{id}` | `PUT /{resource}` with `isActive: false` | Deactivates the record (soft delete). The assessment API's DELETE endpoints don't work (see Findings). With `UpstreamApi:UseDeleteEndpoint=true` the backend calls `DELETE /{resource}` instead and supports `?hard=true`. |
 | GET | `/api/trackers/code/{code}` | `GET /trackers/code/{code}` | |
 | GET | `/api/requests/{id}/trackings` | `GET /trackings/request-id/{id}` | Tracking progress of one request |
 
@@ -195,6 +195,7 @@ The "before" snapshot is read from the assessment API just before the change, so
 | `UpstreamApi:AppId` / `AppKey` | *(required, via `.env`)* | App credentials |
 | `UpstreamApi:AppCode` / `ModuleCode` | `ASSESSMENT` / `ALL` | Sent at login and logout |
 | `UpstreamApi:RefreshCookieName` | `RefreshToken` | Cookie the refresh endpoint reads |
+| `UpstreamApi:UseDeleteEndpoint` | `false` | Use the API's DELETE endpoints instead of deactivating via PUT |
 | `UpstreamApi:TimeoutSeconds` | `25` | Upstream timeout (kept below the Next.js proxy's 30 s) |
 | `SessionCookies:Secure` | `true` (`false` in Development) | Send cookies over HTTPS only |
 | `Cors:AllowedOrigins` | `["http://localhost:3000"]` | Only needed if the frontend calls the API directly |
@@ -232,7 +233,7 @@ The Postman collection has no example responses, so the API's behaviour was chec
 | Paging responses are `{ data: { items, totalItems, totalPages, pageCurrent, ... } }` | Passed through; the frontend reads `items` and `totalItems`. |
 | Sending `null` for some optional fields fails (e.g. `"mandays": null` on a tracker gives *"could not be converted to System.Int32"*), while leaving the field out works | Empty optional fields are omitted from the JSON sent to the API. |
 | A `DELETE` whose JSON body is streamed (chunked, no `Content-Length`) hangs until the timeout | Bodies are serialised up front, so every request carries a `Content-Length`. |
-| **Every `DELETE` fails with 400 "A non-empty request body is required."**: the body never reaches the API, even from Postman, so it is dropped before the API sees it | Soft delete falls back to `PUT` with `isActive: false` (built from the record's current data), and the audit trail records it as a delete. Permanent delete isn't possible through this API, so the UI doesn't offer it. The DELETE call is still tried first, so the fallback switches off by itself once the API is fixed. |
+| **Every `DELETE` fails with 400 "A non-empty request body is required."**: the body never reaches the API, even from Postman, so it is dropped before the API sees it. A request sent right after it on the same connection can then hang. | By default, deletes are done as a `PUT` with `isActive: false` (built from the record's current data) and recorded in the audit trail as deletes. Permanent delete isn't possible through this API, so the UI doesn't offer it. If the API gets fixed, `UpstreamApi:UseDeleteEndpoint=true` switches back to DELETE (with `Connection: close`, falling back to deactivation if the body is dropped again). |
 | Error responses include stack traces and SQL details | Upstream 5xx bodies are logged and replaced with a generic `502`. |
 | The test account and its data are shared by all candidates (records such as `dika` or `LIVE-TEST-2007`) | Validation accepts the existing data (lowercase codes, empty parent codes), and the UI copes with mixed icon names. |
 
