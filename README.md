@@ -115,7 +115,7 @@ All endpoints except login, logout, the client log and health require a session.
 | GET | `/api/{resource}/{id}` | `GET /{resource}/{id}` | |
 | POST | `/api/{resource}` | `POST /{resource}` | `id` and `createdBy` are set by the server |
 | PUT | `/api/{resource}/{id}` | `PUT /{resource}` | `updatedBy` is set by the server |
-| DELETE | `/api/{resource}/{id}?hard=false` | `DELETE /{resource}` | Soft delete by default; `hard=true` removes the row |
+| DELETE | `/api/{resource}/{id}?hard=false` | `DELETE /{resource}`, falling back to `PUT /{resource}` with `isActive: false` | Soft delete. The assessment API drops DELETE bodies (see Findings), so the backend deactivates the record through the update endpoint. `hard=true` is passed on but currently can't succeed. |
 | GET | `/api/trackers/code/{code}` | `GET /trackers/code/{code}` | |
 | GET | `/api/requests/{id}/trackings` | `GET /trackings/request-id/{id}` | Tracking progress of one request |
 
@@ -232,6 +232,7 @@ The Postman collection has no example responses, so the API's behaviour was chec
 | Paging responses are `{ data: { items, totalItems, totalPages, pageCurrent, ... } }` | Passed through; the frontend reads `items` and `totalItems`. |
 | Sending `null` for some optional fields fails (e.g. `"mandays": null` on a tracker gives *"could not be converted to System.Int32"*), while leaving the field out works | Empty optional fields are omitted from the JSON sent to the API. |
 | A `DELETE` whose JSON body is streamed (chunked, no `Content-Length`) hangs until the timeout | Bodies are serialised up front, so every request carries a `Content-Length`. |
+| **Every `DELETE` fails with 400 "A non-empty request body is required."**: the body never reaches the API, even from Postman, so it is dropped before the API sees it | Soft delete falls back to `PUT` with `isActive: false` (built from the record's current data), and the audit trail records it as a delete. Permanent delete isn't possible through this API, so the UI doesn't offer it. The DELETE call is still tried first, so the fallback switches off by itself once the API is fixed. |
 | Error responses include stack traces and SQL details | Upstream 5xx bodies are logged and replaced with a generic `502`. |
 | The test account and its data are shared by all candidates (records such as `dika` or `LIVE-TEST-2007`) | Validation accepts the existing data (lowercase codes, empty parent codes), and the UI copes with mixed icon names. |
 

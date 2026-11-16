@@ -155,6 +155,31 @@ public class GatewayTests : IDisposable
     }
 
     [Fact]
+    public async Task When_the_api_drops_the_delete_body_the_record_is_deactivated_through_put()
+    {
+        _factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", HttpStatusCode.OK,
+            """{"data":{"id":"3080440e-245a-1726-adc2-6638349222d3","code":"ZAHRA-TEST","description":"tes","actionType":"none","moduleFlow":"CA","order":0,"mandays":0},"success":true}""");
+        _factory.Upstream.On(HttpMethod.Delete, $"{FeaturePath}/trackers", HttpStatusCode.BadRequest,
+            """{"title":"One or more validation errors occurred.","status":400,"errors":{"":["A non-empty request body is required."]}}""");
+        _factory.Upstream.On(HttpMethod.Put, $"{FeaturePath}/trackers", HttpStatusCode.OK, """{"success":true}""");
+        var client = await _factory.CreateLoggedInClientAsync();
+
+        var response = await client.DeleteAsync($"/api/trackers/{TrackerId}");
+        var hard = await client.DeleteAsync($"/api/trackers/{TrackerId}?hard=true");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("deactivated", response.Headers.GetValues("X-Delete-Fallback").Single());
+        var put = JsonDocument.Parse(_factory.Upstream.Requests.Single(r => r.Method == HttpMethod.Put).Body).RootElement;
+        Assert.False(put.GetProperty("isActive").GetBoolean());
+        Assert.Equal("ZAHRA-TEST", put.GetProperty("code").GetString());
+        Assert.Equal("assessment.it", put.GetProperty("updatedBy").GetString());
+        Assert.Equal(HttpStatusCode.Conflict, hard.StatusCode);
+
+        var audit = await client.GetFromJsonAsync<JsonElement>($"/api/audit-trails?entityId={TrackerId}");
+        Assert.Equal("Delete", audit.GetProperty("items")[0].GetProperty("action").GetString());
+    }
+
+    [Fact]
     public async Task A_failing_snapshot_does_not_block_the_delete()
     {
         _factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/trackers/{TrackerId}", _ => throw new HttpRequestException("connection reset"));

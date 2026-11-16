@@ -220,6 +220,32 @@ public abstract class ResourceControllerBase(UpstreamGateway gateway, AuditTrail
 
         var response = await Gateway.SendAsUserAsync(HttpContext, request, cancellationToken);
 
+        if (IsDeleteBodyDropped(action, response))
+        {
+            if (action == AuditAction.HardDelete || TryParseObject(AuditDiff.Unwrap(before)) is not { } snapshot)
+            {
+                return Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Delete not available",
+                    detail: action == AuditAction.HardDelete
+                        ? "Permanent delete isn't available: the assessment API drops the body of DELETE requests."
+                        : $"The {EntityName} could not be loaded, so it can't be deactivated. Please try again.");
+            }
+
+            // Soft delete through the update endpoint, which works.
+            Logger.LogWarning(
+                "DELETE body was dropped upstream for {Entity} {Id}; soft-deleting through PUT with isActive=false",
+                EntityName, id);
+            snapshot["id"] = JsonSerializer.SerializeToElement(id);
+            snapshot["updatedBy"] = JsonSerializer.SerializeToElement(CurrentUser);
+            snapshot["isActive"] = JsonSerializer.SerializeToElement(false);
+            response = await Gateway.SendAsUserAsync(
+                HttpContext,
+                new UpstreamRequest(HttpMethod.Put, UpstreamArea.Feature, ResourcePath) { Body = snapshot },
+                cancellationToken);
+            Response.Headers["X-Delete-Fallback"] = "deactivated";
+        }
+
         if (response.IsSuccess)
         {
             var entityId = action == AuditAction.Create
@@ -238,4 +264,23 @@ public abstract class ResourceControllerBase(UpstreamGateway gateway, AuditTrail
     }
 
     protected static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// The assessment API's infrastructure strips the body from DELETE requests (confirmed with Postman),
+    /// so its DELETE endpoints always answer 400 "A non-empty request body is required."
+    /// </summary>
+    private static bool IsDeleteBodyDropped(AuditAction action, UpstreamResponse response) =>
+        action is AuditAction.Delete or AuditAction.HardDelete
+        && response.StatusCode == StatusCodes.Status400BadRequest
+        && response.Body.Contains("non-empty request body", StringComparison.OrdinalIgnoreCase);
+
+    private static Dictionary<string, JsonElement>? TryParseObject(JsonElement? element)
+    {
+        if (element is not { ValueKind: JsonValueKind.Object } value)
+        {
+            return null;
+        }
+
+        return value.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
+    }
 }
