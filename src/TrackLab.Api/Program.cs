@@ -71,7 +71,7 @@ builder.Services.AddCors(options => options.AddPolicy("frontend", policy => poli
     .AllowAnyHeader()
     .WithMethods("GET", "POST", "PUT", "DELETE")
     .AllowCredentials()
-    .WithExposedHeaders("X-Correlation-Id", "X-Resource-Id", "X-Paging-TotalCount", "X-Paging-Total")));
+    .WithExposedHeaders("X-Correlation-Id", "X-Resource-Id", "X-Sort-Fallback", "X-Paging-TotalCount", "X-Paging-Total")));
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto);
 

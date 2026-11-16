@@ -52,6 +52,13 @@ public class PagingHeadersTests
     }
 
     [Theory]
+    [InlineData("""{"message":"42703: column \"created_on\" does not exist"}""", true)]
+    [InlineData("""{"message":"connection refused"}""", false)]
+    [InlineData(null, false)]
+    public void Recognises_unknown_column_errors(string? body, bool expected) =>
+        Assert.Equal(expected, PagingHeaders.IsUnknownColumnError(body));
+
+    [Theory]
     [InlineData("[1,2]")]
     [InlineData("""{"code":1}""")]
     [InlineData("{not json")]

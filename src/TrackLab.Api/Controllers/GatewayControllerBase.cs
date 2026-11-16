@@ -13,6 +13,8 @@ public abstract class GatewayControllerBase(UpstreamGateway gateway, ILogger log
 {
     protected UpstreamGateway Gateway => gateway;
 
+    protected ILogger Logger => logger;
+
     protected string CurrentUser => User.Identity?.Name ?? "unknown";
 
     protected async Task<IActionResult> ForwardAsync(UpstreamRequest request, CancellationToken cancellationToken) =>
@@ -106,25 +108,45 @@ public abstract class ResourceControllerBase(UpstreamGateway gateway, AuditTrail
     /// <summary>Name used in the audit trail, e.g. "tracker".</summary>
     protected abstract string EntityName { get; }
 
-    /// <summary>Paged list. Paging values go upstream as X-Paging-* headers; totals come back in the same style.</summary>
+    /// <summary>Paged list. Paging values go upstream as X-Paging-* headers.</summary>
     [HttpGet]
     public Task<IActionResult> GetPage([FromQuery] PagingQuery query, CancellationToken cancellationToken) =>
-        ForwardAsync(
-            new UpstreamRequest(HttpMethod.Get, UpstreamArea.Feature, $"{ResourcePath}/paging")
-            {
-                Headers = PagingHeaders.FromSimple(query),
-            },
-            cancellationToken);
+        SendPagedAsync($"{ResourcePath}/paging", PagingHeaders.FromSimple(query), cancellationToken);
 
     /// <summary>Paged list with include/exclude filters, e.g. include={"last_status":"REQ-ACC||REQ-CREATE"}.</summary>
     [HttpGet("advanced")]
     public Task<IActionResult> GetAdvancedPage([FromQuery] AdvancedPagingQuery query, CancellationToken cancellationToken) =>
-        ForwardAsync(
-            new UpstreamRequest(HttpMethod.Get, UpstreamArea.Feature, $"{ResourcePath}/paging/advance")
-            {
-                Headers = PagingHeaders.FromAdvanced(query),
-            },
+        SendPagedAsync($"{ResourcePath}/paging/advance", PagingHeaders.FromAdvanced(query), cancellationToken);
+
+    /// <summary>
+    /// The API turns SortBy straight into an SQL column and answers 500 when that column doesn't exist
+    /// (Postgres error 42703; for example requests have no created_on). In that case the page is fetched
+    /// again sorted by id, so the user still sees data. X-Sort-Fallback tells the frontend it happened.
+    /// </summary>
+    private async Task<IActionResult> SendPagedAsync(string path, Dictionary<string, string> headers, CancellationToken cancellationToken)
+    {
+        var response = await Gateway.SendAsUserAsync(
+            HttpContext,
+            new UpstreamRequest(HttpMethod.Get, UpstreamArea.Feature, path) { Headers = headers },
             cancellationToken);
+
+        var sortBy = headers["X-Paging-SortBy"];
+        if (response.StatusCode >= 500 && sortBy != PagingHeaders.DefaultSortBy && PagingHeaders.IsUnknownColumnError(response.Body))
+        {
+            Logger.LogWarning(
+                "The assessment API cannot sort {Resource} by {SortBy}; retrying sorted by {DefaultSortBy}",
+                ResourcePath, sortBy, PagingHeaders.DefaultSortBy);
+
+            var fallback = new Dictionary<string, string>(headers) { ["X-Paging-SortBy"] = PagingHeaders.DefaultSortBy };
+            response = await Gateway.SendAsUserAsync(
+                HttpContext,
+                new UpstreamRequest(HttpMethod.Get, UpstreamArea.Feature, path) { Headers = fallback },
+                cancellationToken);
+            Response.Headers["X-Sort-Fallback"] = sortBy;
+        }
+
+        return ToActionResult(response);
+    }
 
     /// <summary>Every record, unpaged. Used for dropdowns.</summary>
     [HttpGet("all")]

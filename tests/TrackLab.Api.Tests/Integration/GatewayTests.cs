@@ -53,6 +53,21 @@ public class GatewayTests : IDisposable
     }
 
     [Fact]
+    public async Task Sorting_by_a_column_the_api_lacks_falls_back_to_id()
+    {
+        _factory.Upstream.On(HttpMethod.Get, $"{FeaturePath}/requests/paging", request =>
+            request.Header("X-Paging-SortBy") == "id"
+                ? FakeUpstream.Json(HttpStatusCode.OK, """{"data":{"items":[],"totalItems":0},"success":true}""")
+                : FakeUpstream.Json(HttpStatusCode.InternalServerError, """{"success":false,"message":"42703: column \"created_on\" does not exist"}"""));
+        var client = await _factory.CreateLoggedInClientAsync();
+
+        var response = await client.GetAsync("/api/requests?sortBy=createdOn&sortOrder=DESC");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("createdOn", response.Headers.GetValues("X-Sort-Fallback").Single());
+    }
+
+    [Fact]
     public async Task Invalid_paging_values_are_rejected_before_calling_the_api()
     {
         var client = await _factory.CreateLoggedInClientAsync();

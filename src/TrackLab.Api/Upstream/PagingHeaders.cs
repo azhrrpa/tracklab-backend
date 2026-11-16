@@ -33,6 +33,11 @@ public static class PagingHeaders
         return headers;
     }
 
+    /// <summary>True when an upstream error says the sort column doesn't exist (Postgres 42703).</summary>
+    public static bool IsUnknownColumnError(string? body) =>
+        !string.IsNullOrEmpty(body)
+        && (body.Contains("42703", StringComparison.Ordinal) || body.Contains("does not exist", StringComparison.OrdinalIgnoreCase));
+
     public static Dictionary<string, string> FromAdvanced(AdvancedPagingQuery query)
     {
         var headers = FromSimple(query);
