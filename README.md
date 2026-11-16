@@ -1,162 +1,162 @@
-# TrackLab API (.NET backend)
+# TrackLab API (backend .NET)
 
-Backend for **TrackLab**, a web app for tracking lab analysis requests. It sits between the Next.js frontend and the assessment API and adds what the brief asks of the backend:
+Backend untuk **TrackLab**, aplikasi web untuk melacak request analisis lab. Backend ini berada di antara frontend Next.js dan API assessment, dan menambahkan hal-hal yang diminta brief untuk sisi backend:
 
-- **Auth gateway**: login, logout, current user and automatic token refresh. Tokens are kept in encrypted HttpOnly cookies and never reach the browser.
-- **CRUD gateway** for Master Trackers, Transaction Requests and Transaction Trackings, with input validation.
-- **Logging** (feature 4): structured JSON logs with a correlation ID per request, an endpoint that collects frontend errors, and an endpoint to read logs back.
-- **Audit trail** (bonus BE): every create, update and delete is recorded with the user, time and field-by-field changes.
+- **Auth gateway**: login, logout, data user yang sedang login, dan refresh token otomatis. Token disimpan di cookie HttpOnly terenkripsi dan tidak pernah sampai ke browser.
+- **CRUD gateway** untuk Master Trackers, Transaction Requests, dan Transaction Trackings, dengan validasi input.
+- **Logging** (fitur 4): log JSON terstruktur dengan correlation ID per request, endpoint untuk menampung error dari frontend, dan endpoint untuk membaca log.
+- **Audit trail** (bonus BE): setiap create, update, dan delete dicatat beserta user, waktu, dan perubahan per field.
 
-Frontend repository: see `tracklab-frontend` (Next.js).
+Repositori frontend: lihat `tracklab-frontend` (Next.js).
 
 ---
 
-## Architecture
+## Arsitektur
 
 ```
-Browser ──► Next.js (localhost:3000) ──/api/*──► TrackLab.Api (localhost:5080) ──► Assessment API
+Browser ──► Next.js (localhost:3000) ──/api/*──► TrackLab.Api (localhost:5080) ──► API assessment
                                                  │                                (api-assessment-biopharma.kalbe.co.id)
-                                                 ├─ logs/tracklab-YYYYMMDD.jsonl   (structured logs)
+                                                 ├─ logs/tracklab-YYYYMMDD.jsonl   (log terstruktur)
                                                  └─ data/audit-trail.jsonl         (audit trail)
 ```
 
-- The browser only talks to the Next.js app. Next.js forwards `/api/*` to this backend, so the session cookies are first-party and no CORS setup is needed.
-- This backend adds `app_id` / `app_key` to every call to the assessment API. Those secrets never reach the browser.
-- After login, the access token, the refresh token and the user's name are stored in **encrypted, signed HttpOnly cookies** (ASP.NET Core Data Protection). The browser can't read them and can't tamper with them.
-- Right after login, the gateway calls `GET /auth/authorization`. The assessment API only accepts a new token on its feature endpoints once this call has been made (see [Findings](#findings-about-the-assessment-api)).
-- Access tokens last one hour. The gateway refreshes a token shortly before it expires. On a `401` it first re-activates the token and retries. If that still fails, it refreshes the token once with the `RefreshToken` cookie and retries again.
+- Browser hanya berkomunikasi dengan aplikasi Next.js. Next.js meneruskan `/api/*` ke backend ini, sehingga cookie sesi bersifat first-party dan tidak perlu konfigurasi CORS.
+- Backend ini menambahkan `app_id` / `app_key` ke setiap panggilan ke API assessment. Rahasia tersebut tidak pernah sampai ke browser.
+- Setelah login, access token, refresh token, dan nama user disimpan dalam **cookie HttpOnly yang dienkripsi dan ditandatangani** (ASP.NET Core Data Protection). Browser tidak bisa membaca maupun mengubahnya.
+- Tepat setelah login, gateway memanggil `GET /auth/authorization`. API assessment baru menerima token baru di endpoint fitur setelah panggilan ini dilakukan (lihat [Temuan](#temuan-tentang-api-assessment)).
+- Access token berlaku satu jam. Gateway me-refresh token sesaat sebelum kedaluwarsa. Jika mendapat `401`, gateway lebih dulu mengaktifkan ulang token lalu mencoba lagi. Jika masih gagal, token di-refresh satu kali memakai cookie `RefreshToken`, lalu dicoba sekali lagi.
 
 ## Tech stack
 
-- .NET 8, ASP.NET Core Web API (controllers)
-- No third-party runtime packages: logging, rate limiting, data protection and health checks all come from the framework
-- Tests: xUnit and `Microsoft.AspNetCore.Mvc.Testing` (in-memory integration tests with a fake assessment API)
+- .NET 8, ASP.NET Core Web API (controller)
+- Tanpa package runtime pihak ketiga: logging, rate limiting, data protection, dan health check semuanya bawaan framework
+- Test: xUnit dan `Microsoft.AspNetCore.Mvc.Testing` (integration test in-memory dengan API assessment palsu)
 
 ---
 
-## Getting started
+## Memulai
 
-### Prerequisites
+### Prasyarat
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (`dotnet --version` should print 8.x)
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (`dotnet --version` harus menampilkan 8.x)
 
-Run every command below from the repository root.
+Jalankan semua perintah di bawah dari root repositori.
 
-### 1. Configure secrets
+### 1. Atur kredensial
 
-The app credentials from the assessment brief go in a git-ignored `.env` file next to the project:
+Kredensial aplikasi dari brief assessment disimpan di file `.env` (di-ignore oleh git) di dalam folder project:
 
 ```bash
 cp src/TrackLab.Api/.env.example src/TrackLab.Api/.env
-# then edit src/TrackLab.Api/.env:
-#   UpstreamApi__AppId=<app_id from the brief>
-#   UpstreamApi__AppKey=<app_key from the brief>
+# lalu edit src/TrackLab.Api/.env:
+#   UpstreamApi__AppId=<app_id dari brief>
+#   UpstreamApi__AppKey=<app_key dari brief>
 ```
 
-Real environment variables override `.env`, so in CI or production you can set `UpstreamApi__AppId` / `UpstreamApi__AppKey` directly instead. The app refuses to start, with a clear message, if either value is missing.
+Environment variable asli menimpa isi `.env`, jadi di CI atau production `UpstreamApi__AppId` / `UpstreamApi__AppKey` bisa langsung di-set sebagai environment variable. Jika salah satu nilai tidak ada, aplikasi menolak start dengan pesan yang jelas.
 
-### 2. Run
+### 2. Menjalankan
 
 ```bash
 dotnet run --project src/TrackLab.Api
 ```
 
-The API listens on **http://localhost:5080**. Check it with:
+API berjalan di **http://localhost:5080**. Cek dengan:
 
 ```bash
 curl http://localhost:5080/health   # -> Healthy
 ```
 
-Then start the frontend and log in with the account from the brief (`assessment.it`).
+Setelah itu jalankan frontend dan login dengan akun dari brief (`assessment.it`).
 
-### 3. Database migrations
+### 3. Migrasi database
 
-**None needed.** All business data lives in the assessment API. This service keeps only two local files, which are created automatically on first run:
+**Tidak diperlukan.** Semua data bisnis tersimpan di API assessment. Service ini hanya menyimpan dua file lokal yang dibuat otomatis saat pertama kali dijalankan:
 
-| File | Content |
+| File | Isi |
 |---|---|
-| `src/TrackLab.Api/logs/tracklab-YYYYMMDD.jsonl` | Structured logs, one JSON object per line, one file per day (14 days kept) |
-| `src/TrackLab.Api/data/audit-trail.jsonl` | Append-only audit trail |
+| `src/TrackLab.Api/logs/tracklab-YYYYMMDD.jsonl` | Log terstruktur, satu objek JSON per baris, satu file per hari (disimpan 14 hari) |
+| `src/TrackLab.Api/data/audit-trail.jsonl` | Audit trail append-only |
 
-The audit trail sits behind the `IAuditTrailStore` interface. Moving it to a database (for example EF Core with SQL Server) means adding one class and changing one line in `Program.cs`.
+Audit trail berada di balik interface `IAuditTrailStore`. Untuk memindahkannya ke database (misalnya EF Core dengan SQL Server), cukup menambah satu class dan mengubah satu baris di `Program.cs`.
 
-### 4. Test
+### 4. Testing
 
 ```bash
 dotnet test
 ```
 
-- **Unit tests**: token parsing, paging header mapping, audit diffing, `.env` parsing, correlation ID validation.
-- **Integration tests**: start the real app in memory with `WebApplicationFactory` and replace the assessment API with a recorded fake. They cover login and cookies, CSRF, validation, paging headers, `createdBy`/`updatedBy` from the session, soft vs hard delete, audit entries, token refresh and retry, upstream errors, logout and frontend log intake.
+- **Unit test**: parsing token, pemetaan header paging, diff audit, parsing `.env`, validasi correlation ID.
+- **Integration test**: menjalankan aplikasi asli di memori dengan `WebApplicationFactory` dan mengganti API assessment dengan versi palsu yang merekam setiap request. Cakupannya: login dan cookie, CSRF, validasi, header paging, `createdBy`/`updatedBy` dari sesi, soft vs hard delete, entri audit, refresh token dan retry, error dari upstream, logout, dan penerimaan log frontend.
 
 ---
 
-## API reference
+## Referensi API
 
-All endpoints except login, logout, the client log and health require a session. Requests that change data (`POST`, `PUT`, `DELETE`) must send `X-Requested-With: XMLHttpRequest` (CSRF protection; see [Security](#security)).
+Semua endpoint kecuali login, logout, client log, dan health memerlukan sesi. Request yang mengubah data (`POST`, `PUT`, `DELETE`) wajib mengirim `X-Requested-With: XMLHttpRequest` (proteksi CSRF; lihat [Keamanan](#keamanan)).
 
 ### Auth
 
-| Method | Path | Description |
+| Method | Path | Keterangan |
 |---|---|---|
-| POST | `/api/auth/login` | `{ "username", "password" }`. Sets the session cookies and returns `{ username, displayName }` |
-| POST | `/api/auth/logout` | Logs out upstream and clears the cookies |
-| GET | `/api/auth/me` | Current user, plus roles and modules from `/auth/authorization` |
-| POST | `/api/auth/refresh` | Refresh now (normally automatic) |
+| POST | `/api/auth/login` | `{ "username", "password" }`. Mengatur cookie sesi dan mengembalikan `{ username, displayName }` |
+| POST | `/api/auth/logout` | Logout di upstream dan menghapus cookie |
+| GET | `/api/auth/me` | User yang sedang login, beserta role dan modul dari `/auth/authorization` |
+| POST | `/api/auth/refresh` | Refresh sekarang (biasanya otomatis) |
 
-### Trackers, requests, trackings
+### Tracker, request, tracking
 
-`{resource}` is `trackers`, `requests` or `trackings`.
+`{resource}` adalah `trackers`, `requests`, atau `trackings`.
 
-| Method | Path | Upstream call | Notes |
+| Method | Path | Panggilan upstream | Catatan |
 |---|---|---|---|
-| GET | `/api/{resource}?offset&limit&sortBy&sortOrder&search` | `GET /{resource}/paging` | Query values are sent as `X-Paging-*` headers. `limit` is 1–100 and `sortBy` must be a property name. |
-| GET | `/api/{resource}/advanced?…&include&exclude&operator&ignoreCase` | `GET /{resource}/paging/advance` | `include`/`exclude` are JSON such as `{"last_status":"A\|\|B"}`; the backend Base64-encodes them |
-| GET | `/api/{resource}/all` | `GET /{resource}` | Unpaged, for dropdowns |
+| GET | `/api/{resource}?offset&limit&sortBy&sortOrder&search` | `GET /{resource}/paging` | Nilai query dikirim sebagai header `X-Paging-*`. `limit` bernilai 1–100 dan `sortBy` harus nama property. |
+| GET | `/api/{resource}/advanced?…&include&exclude&operator&ignoreCase` | `GET /{resource}/paging/advance` | `include`/`exclude` berupa JSON seperti `{"last_status":"A\|\|B"}`; backend meng-encode-nya ke Base64 |
+| GET | `/api/{resource}/all` | `GET /{resource}` | Tanpa paging, untuk dropdown |
 | GET | `/api/{resource}/{id}` | `GET /{resource}/{id}` | |
-| POST | `/api/{resource}` | `POST /{resource}` | `id` and `createdBy` are set by the server |
-| PUT | `/api/{resource}/{id}` | `PUT /{resource}` | `updatedBy` is set by the server |
-| DELETE | `/api/{resource}/{id}` | `PUT /{resource}` with `isActive: false` | Deactivates the record (soft delete). The assessment API's DELETE endpoints don't work (see Findings). With `UpstreamApi:UseDeleteEndpoint=true` the backend calls `DELETE /{resource}` instead and supports `?hard=true`. |
+| POST | `/api/{resource}` | `POST /{resource}` | `id` dan `createdBy` diisi oleh server |
+| PUT | `/api/{resource}/{id}` | `PUT /{resource}` | `updatedBy` diisi oleh server |
+| DELETE | `/api/{resource}/{id}` | `PUT /{resource}` dengan `isActive: false` | Menonaktifkan record (soft delete). Endpoint DELETE milik API assessment tidak berfungsi (lihat Temuan). Dengan `UpstreamApi:UseDeleteEndpoint=true`, backend memanggil `DELETE /{resource}` dan mendukung `?hard=true`. |
 | GET | `/api/trackers/code/{code}` | `GET /trackers/code/{code}` | |
-| GET | `/api/requests/{id}/trackings` | `GET /trackings/request-id/{id}` | Tracking progress of one request |
+| GET | `/api/requests/{id}/trackings` | `GET /trackings/request-id/{id}` | Progres tracking satu request |
 
-Successful responses are passed through unchanged. Errors are returned as RFC 9457 **ProblemDetails** with a `traceId`:
+Respons sukses diteruskan apa adanya. Error dikembalikan dalam format **ProblemDetails** RFC 9457 dengan `traceId`:
 
-| Situation | Status |
+| Kondisi | Status |
 |---|---|
-| Invalid input | `400` with field errors (the assessment API is not called) |
-| No session, or the session has expired and can't be refreshed | `401` |
-| Missing CSRF header | `403` |
-| Assessment API error (5xx) | `502` (upstream details are logged, not returned) |
-| Assessment API unreachable or too slow | `502` / `504` |
-| Too many login attempts | `429` |
+| Input tidak valid | `400` dengan error per field (API assessment tidak dipanggil) |
+| Tidak ada sesi, atau sesi sudah kedaluwarsa dan tidak bisa di-refresh | `401` |
+| Header CSRF tidak ada | `403` |
+| Error dari API assessment (5xx) | `502` (detail upstream dicatat di log, tidak dikembalikan) |
+| API assessment tidak bisa dihubungi atau terlalu lambat | `502` / `504` |
+| Terlalu banyak percobaan login | `429` |
 
-### Logging and audit trail
+### Logging dan audit trail
 
-| Method | Path | Description |
+| Method | Path | Keterangan |
 |---|---|---|
-| POST | `/api/logs/client` | Frontend error/event `{ level, message, url?, stack?, context? }` (anonymous, rate limited) |
-| GET | `/api/logs?date&minLevel&search&correlationId&limit` | Read log entries, newest first |
-| GET | `/api/audit-trails?entity&entityId&user&action&offset&limit` | Audit entries, newest first |
-| GET | `/api/audit-trails/{id}` | One audit entry |
+| POST | `/api/logs/client` | Error/event dari frontend `{ level, message, url?, stack?, context? }` (anonim, dengan rate limit) |
+| GET | `/api/logs?date&minLevel&search&correlationId&limit` | Membaca entri log, terbaru lebih dulu |
+| GET | `/api/audit-trails?entity&entityId&user&action&offset&limit` | Entri audit, terbaru lebih dulu |
+| GET | `/api/audit-trails/{id}` | Satu entri audit |
 | GET | `/health` | Health check |
 
 ---
 
 ## Logging
 
-- Every request gets a **correlation ID**: taken from the `X-Correlation-Id` request header, or generated. It is returned in the response and attached to every log line written while handling that request, including the upstream call. The frontend sends its own ID with each call, so one ID links a browser error, the backend request and the assessment API call.
-- Logs go to the console and to `logs/tracklab-YYYYMMDD.jsonl`:
+- Setiap request mendapat **correlation ID**: diambil dari header request `X-Correlation-Id`, atau dibuat baru. ID ini dikembalikan di respons dan ditempelkan ke setiap baris log selama request tersebut diproses, termasuk panggilan ke upstream. Frontend mengirim ID-nya sendiri di setiap panggilan, sehingga satu ID menghubungkan error di browser, request di backend, dan panggilan ke API assessment.
+- Log ditulis ke console dan ke `logs/tracklab-YYYYMMDD.jsonl`:
   ```json
   {"timestamp":"2026-11-16T13:48:42+07:00","level":"Information","category":"TrackLab.Api.Logging.RequestLoggingMiddleware","message":"HTTP GET /api/trackers responded 200 in 31 ms for assessment.it from 127.0.0.1","correlationId":"dde5178a…","properties":{"Method":"GET","StatusCode":200,"ElapsedMs":31,…}}
   ```
-- What is logged: each HTTP request (method, path, status, duration, user, IP), each upstream call (status, duration), login/logout/refresh events, audit events, frontend errors and unhandled exceptions.
-- What is **not** logged: request bodies, passwords, tokens and headers.
-- Log writes go into a queue that a background task flushes to disk, so logging doesn't slow requests down. Files older than 14 days are deleted.
+- Yang dicatat: setiap request HTTP (method, path, status, durasi, user, IP), setiap panggilan upstream (status, durasi), event login/logout/refresh, event audit, error dari frontend, dan exception yang tidak tertangani.
+- Yang **tidak** dicatat: body request, password, token, dan header.
+- Penulisan log masuk ke antrean yang ditulis ke disk oleh background task, sehingga logging tidak memperlambat request. File yang lebih lama dari 14 hari dihapus.
 
 ## Audit trail
 
-For every successful create, update or delete, the backend saves:
+Untuk setiap create, update, atau delete yang berhasil, backend menyimpan:
 
 ```json
 {
@@ -168,78 +168,78 @@ For every successful create, update or delete, the backend saves:
 }
 ```
 
-The "before" snapshot is read from the assessment API just before the change, so the diff reflects what was really stored. Entries are only ever appended, never edited. A failure to write the audit entry is logged, but the user's change still succeeds.
+Snapshot "before" dibaca dari API assessment tepat sebelum perubahan, sehingga diff mencerminkan data yang benar-benar tersimpan. Entri hanya ditambahkan, tidak pernah diubah. Jika penulisan entri audit gagal, kegagalan itu dicatat di log, tetapi perubahan dari user tetap berhasil.
 
-## Security
+## Keamanan
 
-| Concern | Measure |
+| Aspek | Penanganan |
 |---|---|
-| Secrets | `app_id` / `app_key` live only on the server (`.env` or environment variables, git-ignored) |
-| Token theft (XSS) | Tokens are in HttpOnly cookies, never in JavaScript or `localStorage` |
-| Cookie tampering | Cookies are encrypted and signed (Data Protection); a modified cookie counts as logged out |
-| CSRF | `SameSite=Strict` cookies, plus a required `X-Requested-With` header on state-changing requests |
-| Brute force | Login is limited to 10 attempts per minute per IP |
-| Injection into upstream headers and logs | Paging and sort values are validated, filters must be flat JSON objects, correlation IDs are restricted to `[A-Za-z0-9-]`, and line breaks are stripped from client log messages |
-| Mass assignment | `createdBy` / `updatedBy` / `deletedBy` and `id` are set by the server, never taken from the client |
-| Error leakage | Upstream 5xx bodies and exception details are logged, not returned |
-| Default deny | Every endpoint requires a session unless marked `[AllowAnonymous]` |
-| Headers | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Cache-Control: no-store` |
+| Rahasia | `app_id` / `app_key` hanya ada di server (`.env` atau environment variable, di-ignore oleh git) |
+| Pencurian token (XSS) | Token disimpan di cookie HttpOnly, tidak pernah di JavaScript atau `localStorage` |
+| Manipulasi cookie | Cookie dienkripsi dan ditandatangani (Data Protection); cookie yang diubah dianggap logout |
+| CSRF | Cookie `SameSite=Strict`, ditambah header wajib `X-Requested-With` pada request yang mengubah data |
+| Brute force | Login dibatasi 10 percobaan per menit per IP |
+| Injeksi ke header upstream dan log | Nilai paging dan sort divalidasi, filter harus berupa objek JSON datar, correlation ID dibatasi ke `[A-Za-z0-9-]`, dan baris baru dibuang dari pesan client log |
+| Mass assignment | `createdBy` / `updatedBy` / `deletedBy` dan `id` diisi oleh server, tidak pernah diambil dari client |
+| Kebocoran error | Body 5xx dari upstream dan detail exception dicatat di log, tidak dikembalikan |
+| Default deny | Setiap endpoint memerlukan sesi kecuali ditandai `[AllowAnonymous]` |
+| Header | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Cache-Control: no-store` |
 
-## Configuration
+## Konfigurasi
 
-`src/TrackLab.Api/appsettings.json` (override any value with an environment variable, using `__` for `:`):
+`src/TrackLab.Api/appsettings.json` (nilai apa pun bisa ditimpa dengan environment variable, memakai `__` sebagai pengganti `:`):
 
-| Key | Default | Meaning |
+| Key | Default | Arti |
 |---|---|---|
-| `UpstreamApi:BaseUrl` | `https://api-assessment-biopharma.kalbe.co.id` | Assessment API |
-| `UpstreamApi:AuthPath` / `FeaturePath` | `/api/v1/authentication` / `/api/v1/feature` | Base paths |
-| `UpstreamApi:AppId` / `AppKey` | *(required, via `.env`)* | App credentials |
-| `UpstreamApi:AppCode` / `ModuleCode` | `ASSESSMENT` / `ALL` | Sent at login and logout |
-| `UpstreamApi:RefreshCookieName` | `RefreshToken` | Cookie the refresh endpoint reads |
-| `UpstreamApi:UseDeleteEndpoint` | `false` | Use the API's DELETE endpoints instead of deactivating via PUT |
-| `UpstreamApi:TimeoutSeconds` | `25` | Upstream timeout (kept below the Next.js proxy's 30 s) |
-| `SessionCookies:Secure` | `true` (`false` in Development) | Send cookies over HTTPS only |
-| `Cors:AllowedOrigins` | `["http://localhost:3000"]` | Only needed if the frontend calls the API directly |
-| `FileLogging:Directory` / `MinimumLevel` / `RetainedDays` | `logs` / `Information` / `14` | File logs |
-| `AuditTrail:FilePath` | `data/audit-trail.jsonl` | Audit trail file |
+| `UpstreamApi:BaseUrl` | `https://api-assessment-biopharma.kalbe.co.id` | API assessment |
+| `UpstreamApi:AuthPath` / `FeaturePath` | `/api/v1/authentication` / `/api/v1/feature` | Base path |
+| `UpstreamApi:AppId` / `AppKey` | *(wajib, lewat `.env`)* | Kredensial aplikasi |
+| `UpstreamApi:AppCode` / `ModuleCode` | `ASSESSMENT` / `ALL` | Dikirim saat login dan logout |
+| `UpstreamApi:RefreshCookieName` | `RefreshToken` | Cookie yang dibaca endpoint refresh |
+| `UpstreamApi:UseDeleteEndpoint` | `false` | Memakai endpoint DELETE milik API, bukan menonaktifkan lewat PUT |
+| `UpstreamApi:TimeoutSeconds` | `25` | Timeout upstream (dibuat di bawah batas 30 detik milik proxy Next.js) |
+| `SessionCookies:Secure` | `true` (`false` di Development) | Cookie hanya dikirim lewat HTTPS |
+| `Cors:AllowedOrigins` | `["http://localhost:3000"]` | Hanya diperlukan jika frontend memanggil API secara langsung |
+| `FileLogging:Directory` / `MinimumLevel` / `RetainedDays` | `logs` / `Information` / `14` | Log file |
+| `AuditTrail:FilePath` | `data/audit-trail.jsonl` | File audit trail |
 
-## Project structure
+## Struktur project
 
 ```
 src/TrackLab.Api/
-├── Program.cs              # Composition root: services and middleware order
+├── Program.cs              # Composition root: registrasi service dan urutan middleware
 ├── Controllers/            # Auth, Trackers, Requests, Trackings, AuditTrails, Logs
-├── Contracts/              # Request DTOs with validation attributes
-├── Upstream/               # Typed HttpClient, credential/logging handlers, token refresh gateway, paging headers
-├── Auth/                   # Encrypted cookie session + ASP.NET Core authentication handler
-├── Audit/                  # Audit models, diff, recorder, JSON-lines store
-├── Logging/                # Correlation ID, request logging, JSON file logger + reader
-├── Security/               # CSRF header check, security headers, rate limit policies
+├── Contracts/              # DTO request dengan atribut validasi
+├── Upstream/               # Typed HttpClient, handler kredensial/logging, gateway refresh token, header paging
+├── Auth/                   # Sesi cookie terenkripsi + authentication handler ASP.NET Core
+├── Audit/                  # Model audit, diff, recorder, penyimpanan JSON Lines
+├── Logging/                # Correlation ID, request logging, file logger JSON + pembaca log
+├── Security/               # Cek header CSRF, security headers, policy rate limit
 └── Errors/                 # Global exception handler (ProblemDetails)
 tests/TrackLab.Api.Tests/
-├── Unit/                   # Pure logic
-├── Integration/            # Whole app in memory against a fake assessment API
-└── Support/                # Test factory, fake upstream, JWT helper
+├── Unit/                   # Logika murni
+├── Integration/            # Seluruh aplikasi di memori melawan API assessment palsu
+└── Support/                # Test factory, upstream palsu, helper JWT
 ```
 
-## Findings about the assessment API
+## Temuan tentang API assessment
 
-The Postman collection has no example responses, so the API's behaviour was checked by hand. The backend is built around what that turned up:
+Postman collection tidak menyertakan contoh respons, jadi perilaku API diperiksa secara manual. Backend dibangun berdasarkan hasil pemeriksaan tersebut:
 
-| Finding | How it's handled |
+| Temuan | Penanganan |
 |---|---|
-| Login returns `{ data: { token: { access, refresh, expiresIn: 3600 } } }` and also sets a `RefreshToken` cookie | Both tokens are kept in the encrypted session. The refresh call sends the `RefreshToken` cookie (with the token from the body as a fallback). |
-| **A new token gets `401` on every feature endpoint until `GET /auth/authorization` has been called with it** | Called automatically right after login and after each refresh. On a `401`, the gateway re-activates the token before trying a refresh. |
-| `X-Paging-SortBy` becomes a SQL `ORDER BY` column: a missing value or an unknown column returns HTTP 500. The columns don't fully match the diagram (requests have no `created_on`; the date column is `request_date`) | The backend always sends a sort column (default `id`) and only accepts plain property names. If the API rejects a column (Postgres error 42703), the backend fetches the page again sorted by `id` and sets `X-Sort-Fallback`, so the user still gets data. |
-| Paging responses are `{ data: { items, totalItems, totalPages, pageCurrent, ... } }` | Passed through; the frontend reads `items` and `totalItems`. |
-| Sending `null` for some optional fields fails (e.g. `"mandays": null` on a tracker gives *"could not be converted to System.Int32"*), while leaving the field out works | Empty optional fields are omitted from the JSON sent to the API. |
-| A `DELETE` whose JSON body is streamed (chunked, no `Content-Length`) hangs until the timeout | Bodies are serialised up front, so every request carries a `Content-Length`. |
-| **Every `DELETE` fails with 400 "A non-empty request body is required."**: the body never reaches the API, even from Postman, so it is dropped before the API sees it. A request sent right after it on the same connection can then hang. | By default, deletes are done as a `PUT` with `isActive: false` (built from the record's current data) and recorded in the audit trail as deletes. Permanent delete isn't possible through this API, so the UI doesn't offer it. If the API gets fixed, `UpstreamApi:UseDeleteEndpoint=true` switches back to DELETE (with `Connection: close`, falling back to deactivation if the body is dropped again). |
-| Creating a request with a project code that already exists, even one that was deleted, brings the old record back (same id) instead of creating a new one | Documented. The audit trail records the id the API returns, so both "creates" show up on the same record's history. |
-| Reads are cached (the stack traces show a cache interceptor), so reading a record straight after changing it can return the old values | The frontend shows the saved values directly instead of relying on the immediate re-read. |
-| Error responses include stack traces and SQL details | Upstream 5xx bodies are logged and replaced with a generic `502`. |
-| The test account and its data are shared by all candidates (records such as `dika` or `LIVE-TEST-2007`) | Validation accepts the existing data (lowercase codes, empty parent codes), and the UI copes with mixed icon names. |
+| Login mengembalikan `{ data: { token: { access, refresh, expiresIn: 3600 } } }` dan juga mengatur cookie `RefreshToken` | Kedua token disimpan di sesi terenkripsi. Panggilan refresh mengirim cookie `RefreshToken` (dengan token dari body sebagai cadangan). |
+| **Token baru selalu mendapat `401` di semua endpoint fitur sampai `GET /auth/authorization` dipanggil dengan token tersebut** | Dipanggil otomatis tepat setelah login dan setelah setiap refresh. Saat mendapat `401`, gateway mengaktifkan ulang token sebelum mencoba refresh. |
+| `X-Paging-SortBy` dipakai sebagai kolom `ORDER BY` di SQL: nilai kosong atau kolom yang tidak dikenal menghasilkan HTTP 500. Nama kolomnya tidak sepenuhnya sesuai diagram (request tidak punya `created_on`; kolom tanggalnya `request_date`) | Backend selalu mengirim kolom sort (default `id`) dan hanya menerima nama property biasa. Jika API menolak kolomnya (error Postgres 42703), backend mengambil ulang halaman dengan sort `id` dan mengatur `X-Sort-Fallback`, sehingga user tetap mendapat data. |
+| Respons paging berbentuk `{ data: { items, totalItems, totalPages, pageCurrent, ... } }` | Diteruskan apa adanya; frontend membaca `items` dan `totalItems`. |
+| Mengirim `null` untuk beberapa field opsional gagal (misalnya `"mandays": null` pada tracker menghasilkan *"could not be converted to System.Int32"*), sedangkan tidak menyertakan field tersebut berhasil | Field opsional yang kosong tidak disertakan dalam JSON yang dikirim ke API. |
+| `DELETE` yang body JSON-nya dikirim secara streaming (chunked, tanpa `Content-Length`) menggantung sampai timeout | Body diserialisasi lebih dulu, sehingga setiap request membawa `Content-Length`. |
+| **Setiap `DELETE` gagal dengan 400 "A non-empty request body is required."**: body tidak pernah sampai ke API, bahkan dari Postman, jadi body sudah dibuang sebelum diterima API. Request berikutnya pada koneksi yang sama bisa menggantung. | Secara default, delete dilakukan sebagai `PUT` dengan `isActive: false` (dibangun dari data record saat ini) dan dicatat di audit trail sebagai delete. Delete permanen tidak mungkin dilakukan lewat API ini, jadi UI tidak menyediakannya. Jika API sudah diperbaiki, `UpstreamApi:UseDeleteEndpoint=true` mengembalikan ke DELETE (dengan `Connection: close`, dan kembali menonaktifkan record jika body dibuang lagi). |
+| Membuat request dengan project code yang sudah ada, bahkan yang sudah dihapus, menghidupkan kembali record lama (id sama), bukan membuat record baru | Didokumentasikan. Audit trail mencatat id yang dikembalikan API, sehingga kedua "create" muncul di riwayat record yang sama. |
+| Read di-cache (stack trace menunjukkan adanya cache interceptor), sehingga membaca record tepat setelah diubah bisa mengembalikan nilai lama | Frontend langsung menampilkan nilai yang disimpan, tanpa mengandalkan read ulang seketika. |
+| Respons error berisi stack trace dan detail SQL | Body 5xx dari upstream dicatat di log dan diganti dengan `502` generik. |
+| Akun test dan datanya dipakai bersama oleh semua kandidat (record seperti `dika` atau `LIVE-TEST-2007`) | Validasi menerima data yang sudah ada (kode huruf kecil, parent code kosong), dan UI bisa menangani nama ikon yang gayanya beragam. |
 
-Other notes:
-- `createdBy` / `updatedBy` / `deletedBy` are the logged-in username.
-- There is no partner endpoint (requests carry only `partnerId`). See the frontend README for how company names are shown.
+Catatan lain:
+- `createdBy` / `updatedBy` / `deletedBy` berisi username yang sedang login.
+- Tidak ada endpoint partner (request hanya membawa `partnerId`). Lihat README frontend untuk cara nama perusahaan ditampilkan.
